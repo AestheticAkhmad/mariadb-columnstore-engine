@@ -208,7 +208,7 @@ class StringStore
   bool fUseStoreStringMutex = false;  //@bug6065, make StringStore::storeString() thread safe
   bool fUseOnlyLongStrings = false;
   boost::mutex fMutex;
-  std::optional<allocators::CountingAllocator<StringStoreBufType>> alloc {};
+  std::optional<allocators::CountingAllocator<StringStoreBufType>> alloc{};
 };
 
 // Where we store user data for UDA(n)F
@@ -536,7 +536,9 @@ class Row
 
   inline void setDoubleField(double val, uint32_t colIndex);
   inline void setFloatField(float val, uint32_t colIndex);
-  inline void setDecimalField(double /*val*/, uint32_t /*colIndex*/) { }  // TODO: Do something here
+  inline void setDecimalField(double /*val*/, uint32_t /*colIndex*/)
+  {
+  }  // TODO: Do something here
   inline void setLongDoubleField(const long double& val, uint32_t colIndex);
   inline void setInt128Field(const int128_t& val, uint32_t colIndex);
 
@@ -560,6 +562,9 @@ class Row
   inline void setBinaryField(const T* value, uint32_t colIndex);
   template <typename T>
   inline void setBinaryField_offset(const T* value, uint32_t width, uint32_t colIndex);
+  // XXX: TODO: I'd deprecate these two functions in favor of get/setStringField.
+  // getSetStringField properly support binary data of up to 4G bytes
+  // and also provide perfomant interface through use of ConstString.
   // support VARBINARY
   // Add 2-byte length at the CHARSET_INFO*beginning of the field.  nullptr and zero length field are
   // treated the same, could use one of the length bit to distinguish these two cases.
@@ -941,6 +946,12 @@ inline void Row::setBinaryField<int128_t>(const int128_t* value, uint32_t colInd
   datatypes::TSInt128::assignPtrPtr(&data[offsets[colIndex]], value);
 }
 
+template <>
+inline void Row::setBinaryField<uint128_t>(const uint128_t* value, uint32_t colIndex)
+{
+  datatypes::TSInt128::assignPtrPtr(&data[offsets[colIndex]], value);
+}
+
 // This method !cannot! be applied to uint8_t* buffers.
 template <typename T>
 inline void Row::setBinaryField_offset(const T* value, uint32_t /*width*/, uint32_t offset)
@@ -956,6 +967,12 @@ inline void Row::setBinaryField_offset<uint8_t>(const uint8_t* value, uint32_t w
 
 template <>
 inline void Row::setBinaryField_offset<int128_t>(const int128_t* value, uint32_t /*width*/, uint32_t offset)
+{
+  datatypes::TSInt128::assignPtrPtr(&data[offset], value);
+}
+
+template <>
+inline void Row::setBinaryField_offset<uint128_t>(const uint128_t* value, uint32_t /*width*/, uint32_t offset)
 {
   datatypes::TSInt128::assignPtrPtr(&data[offset], value);
 }
@@ -2316,9 +2333,8 @@ inline void RGData::getRow(uint32_t num, Row* row)
   uint32_t incomingRowSize = row->getSize();
   idbassert(columnCount == row->getColumnCount() && rowSize == incomingRowSize);
 
-  row->setData(
-      Row::Pointer(&rowData[RowGroup::getHeaderSize() + (num * incomingRowSize)], strings.get(),
-                      userDataStore.get(), aggregateDataStore.get()));
+  row->setData(Row::Pointer(&rowData[RowGroup::getHeaderSize() + (num * incomingRowSize)], strings.get(),
+                            userDataStore.get(), aggregateDataStore.get()));
 }
 
 inline uint64_t rowGidRidToIdx(uint64_t gid, uint32_t rid, uint32_t maxRows)
